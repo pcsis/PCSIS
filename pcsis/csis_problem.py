@@ -9,10 +9,12 @@ import numpy as np
 import math
 import itertools
 import time
+import warnings
 
 
 class CSISProblem:
     def __init__(self, model: callable):
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
         self.model = model()
         self.templates = None
         self.solver = None
@@ -42,6 +44,8 @@ class CSISProblem:
         self.volume_list = []
         self.controller = None
         self.traj = None
+        self.N1 = 0
+        self.obj_sample = None
 
     def set_options(self, **kwargs):
         self.verbose = kwargs.get("verbose", 1)
@@ -102,6 +106,8 @@ class CSISProblem:
         self.plot_manager = PlotManager(dim=plot_dim, project_values=plot_project_values, K=self.K, is_iteration=True,
                                         v_filled=False, grid=False)
                                         # save=True, prob_name=self.model.__class__.__name__)
+        self.N1 = int(kwargs.get("N1", 1000))
+        self.obj_sample = kwargs.get("obj_sample", "random")
 
     def generate_data(self, safe_set, control_set: Interval, method="random"):
         self.safe_set = safe_set
@@ -115,18 +121,13 @@ class CSISProblem:
         u_data = np.array(list(itertools.product(*u_data)))
         if isinstance(safe_set, Interval):
             assert self.model.degree_state == safe_set.inf.shape[0]
-            if method == "random":
-                x_data = np.random.uniform(safe_set.inf, safe_set.sup, size=(self.N, len(safe_set.inf)))
-                fx_data = np.array(self.model.fx(x_data, u_data)).T
-            elif method == "grid":
-                pass
+            x_data = safe_set.generate_data(self.N, method)
         elif isinstance(safe_set, Ellipsoid):
             assert self.model.degree_state == safe_set.degree
             x_data = safe_set.generate_data(self.N, method)
-            fx_data = np.array(self.model.fx(x_data, u_data)).T
         else:
             raise NotImplementedError("Sampling within this type of safe set is not implemented")
-
+        fx_data = np.array(self.model.fx(x_data, u_data)).T
         return x_data, u_data, fx_data
 
     def _categorize_data(self, fx_data, h_fx):
@@ -143,13 +144,9 @@ class CSISProblem:
         self.is_in_safe_set = self.is_in_safe_set.reshape(s1 // self.M, self.M)
         return h_fx
 
-    def set_obj(self, num_obj, method="random"):
-        obj_data = None
+    def _set_obj(self, num_obj, method="grid"):
         if isinstance(self.safe_set, Interval):
-            if method == "random":
-                obj_data = np.random.uniform(self.safe_set.inf, self.safe_set.sup, size=(num_obj, len(self.safe_set.inf)))
-            elif method == "grid":
-                pass
+            obj_data = self.safe_set.generate_data(num_obj, method)
         elif isinstance(self.safe_set, Ellipsoid):
             obj_data = self.safe_set.generate_data(num_obj, method)
         else:
@@ -301,6 +298,7 @@ class CSISProblem:
 
     def solve(self, x_data, fx_data):
         start_time = time.time()
+        self._set_obj(self.N1, self.obj_sample)
         iteration = 0
 
         xi, coe_last = self._solve_0(x_data, fx_data)

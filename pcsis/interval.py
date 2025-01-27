@@ -875,3 +875,15 @@ class Interval:
 
     def is_in_safe_set(self, fx_data):
         return np.all((fx_data >= self.inf) & (fx_data <= self.sup), axis=1)
+
+    def generate_data(self, N, method):
+        data = np.empty((0, self._degree))
+        if method == "random":
+            data = np.random.uniform(self.inf, self.sup, size=(N, len(self.inf)))
+        elif method == "grid":
+            N_each_degree = int(np.ceil(N ** (1 / self._degree)))
+            grids = [np.linspace(self._inf[i], self._sup[i], N_each_degree) for i in range(self._degree)]
+            data = np.array(np.meshgrid(*grids)).T.reshape(-1, self._degree)
+        else:
+            raise NotImplementedError()
+        return data

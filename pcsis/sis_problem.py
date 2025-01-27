@@ -27,6 +27,8 @@ class SISProblem:
         self.plot_manager = None
         self.traj = None
         self.coe = None
+        self.N1 = 0
+        self.obj_sample = None
 
     def set_options(self, **kwargs):
         self.verbose = kwargs.get("verbose", 1)
@@ -73,7 +75,10 @@ class SISProblem:
         plot_project_values = kwargs.get("plot_project_values", {})
         self.plot_manager = PlotManager(dim=plot_dim, project_values=plot_project_values, grid=False,
                                         v_filled=True)
-                                        # save=True, prob_name=self.model.__class__.__name__)
+                                        # save=True, prob_name=self.model.__class__.__name__, save_file='jpg')
+
+        self.N1 = int(kwargs.get("N1", 1000))
+        self.obj_sample = kwargs.get("obj_sample", "random")
 
     def generate_data(self, safe_set, method="random"):
         self.safe_set = safe_set
@@ -84,18 +89,13 @@ class SISProblem:
         #     print("{} samples are required".format(self.N))
         if isinstance(safe_set, Interval):
             assert self.model.degree_state == safe_set.inf.shape[0]
-            if method == "random":
-                x_data = np.random.uniform(safe_set.inf, safe_set.sup, size=(self.N, len(safe_set.inf)))
-                fx_data = np.array(self.model.fx(x_data, None)).T
-            elif method == "grid":
-                pass
+            x_data = safe_set.generate_data(self.N, method)
         elif isinstance(safe_set, Ellipsoid):
             assert self.model.degree_state == safe_set.degree
             x_data = safe_set.generate_data(self.N, method)
-            fx_data = np.array(self.model.fx(x_data, None)).T
         else:
             raise NotImplementedError("Sampling within this type of safe set is not implemented")
-
+        fx_data = np.array(self.model.fx(x_data, None)).T
         return self._categorize_data(x_data, fx_data, safe_set)
 
     def _categorize_data(self, x_data, fx_data, safe_set):
@@ -127,13 +127,9 @@ class SISProblem:
         print('The invariant set contains {} states (out of a total of {} states)'
               .format(volume, self.N))
 
-    def set_obj(self, N1, method="random"):
-        obj_data = None
+    def _set_obj(self, N1, method="grid"):
         if isinstance(self.safe_set, Interval):
-            if method == "random":
-                obj_data = np.random.uniform(self.safe_set.inf, self.safe_set.sup, size=(N1, len(self.safe_set.inf)))
-            elif method == "grid":
-                pass
+            obj_data = self.safe_set.generate_data(N1, method)
         elif isinstance(self.safe_set, Ellipsoid):
             obj_data = self.safe_set.generate_data(N1, method)
         else:
@@ -143,6 +139,7 @@ class SISProblem:
 
     def solve(self, x_safe, fx_safe, x_unsafe, fx_unsafe):
         start_time = time.time()
+        self._set_obj(self.N1, self.obj_sample)
         h_x_safe = self.templates.calc_values(x_safe)
         h_fx_safe = self.templates.calc_values(fx_safe)
 

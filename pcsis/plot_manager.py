@@ -74,7 +74,8 @@ class PlotManager:
             ax.set_ylabel(r'$y$', fontsize=14)
         if self.save:
             current_time = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
-            folder_path = '../fig_results/'
+            folder_path = '../../fig_results/'
+            # folder_path = '../fig_results/'
             if self.save_file == "pdf":
                 file_path = f'{folder_path}/{self.prob_name}_{current_time}.pdf'
             else:
@@ -91,7 +92,7 @@ class PlotManager:
                         closed=True,
                         alpha=1,
                         fill=self.safe_set_filled,
-                        linewidth=5,
+                        linewidth=6,
                         edgecolor=self.safe_set_color,
                         facecolor=self.safe_set_color,
                     )
@@ -180,7 +181,7 @@ class PlotManager:
                 self.ax_list[i].contour(x, y, vf, levels=[0], colors=[color], linewidths=3)
                 # self.ax_list[i].contourf(x, y, vf, levels=np.linspace(vf.min(), vf.max(), 100), cmap='RdYlBu', alpha=0.5)
             else:
-                self.ax_list[i].contour(x, y, vf, levels=[0], colors=[color], linewidths=3)
+                self.ax_list[i].contour(x, y, vf, levels=[0], colors=[color], linewidths=6)
 
             # if self.v_filled and self.show_color_bar:
             #     self.ax_list[i].colorbar(label='f(x0, x1)')

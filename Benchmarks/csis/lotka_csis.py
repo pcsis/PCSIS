@@ -14,14 +14,13 @@ if __name__ == '__main__':
     M, epsilon = 3, 0.0
 
     prob.set_options(template_type="poly", degree_poly=8, lamda=0.9, alpha=0.005, beta=1e-20, C=-1,
-                     coe_lb=-1e3, coe_ub=1e3, M=M, K=10, epsilon=epsilon, random_seed=0)
+                     coe_lb=-1e3, coe_ub=1e3, M=M, K=10, epsilon=epsilon, N1=1e3, random_seed=0)
 
     l = 3.5
     safe_set = Interval([-l, -l], [l, l])
 
     control_set = Interval([-1, -1], [1, 1])
     x_data, u_data, fx_data = prob.generate_data(safe_set, control_set)
-    prob.set_obj(1000)
 
     prob.solve(x_data, fx_data)
     prob.plot()

@@ -9,11 +9,10 @@ if __name__ == '__main__':
 
     alpha, beta = 0.01, 1e-20
     prob.set_options(degree_poly=12, lamda=0.9999, alpha=alpha, beta=beta, C=-1,
-                     U_al=1e3, random_seed=0)
+                     U_al=1e3, N1=1e3, random_seed=0)
 
     safe_set = Interval([-1, -1], [1, 1])
     x_safe, fx_safe, x_unsafe, fx_unsafe = prob.generate_data(safe_set)
-    prob.set_obj(N1=1000)
 
     h1 = prob.solve(x_safe, fx_safe, x_unsafe, fx_unsafe)
     prob.get_probability(1e6)
