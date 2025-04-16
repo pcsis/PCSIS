@@ -74,11 +74,12 @@ class SISProblem:
         plot_dim = kwargs.get("plot_dim", [[0, 1]])
         plot_project_values = kwargs.get("plot_project_values", {})
         self.plot_manager = PlotManager(dim=plot_dim, project_values=plot_project_values, grid=False,
-                                        v_filled=True)
-                                        # save=True, prob_name=self.model.__class__.__name__, save_file='jpg')
+                                        v_filled=True,
+                                        save=True, prob_name=self.model.__class__.__name__, save_file='jpg')
 
         self.N1 = int(kwargs.get("N1", 1000))
         self.obj_sample = kwargs.get("obj_sample", "random")
+        # self.obj_sample = kwargs.get("obj_sample", "grid")
 
     def generate_data(self, safe_set, method="random"):
         self.safe_set = safe_set

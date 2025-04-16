@@ -11,7 +11,7 @@ if __name__ == '__main__':
     # epsilon = 0.2
     # epsilon = 0.1
     epsilon = 0.2
-    prob.set_options(degree_poly=6, lamda=0.99, alpha=0.005, beta=1e-20, C=-1, N1=1e3,
+    prob.set_options(degree_poly=6, lamda=0.99, alpha=0.005, beta=1e-20, C=-1, N1=1e3, obj_sample="grid",
                      U_al=1e3,  M=10, K=5, K_prime=10, epsilon=epsilon, epsilon_prime=1, random_seed=0)
 
     safe_set = Interval([-math.pi * 5 / 6, -4], [math.pi * 5 / 6, 4])
