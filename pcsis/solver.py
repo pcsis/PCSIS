@@ -30,6 +30,9 @@ class Solver:
         self.solver_model.addConstr(cons_safe @ self.coe <= 0, "cons_safe")
         self.solver_model.addConstr(cons_unsafe @ self.coe <= C, "cons_unsafe")
 
+    def add_constraint_x0(self, h_x_0, epsilon_0):
+        self.solver_model.addConstr(h_x_0 @ self.coe - epsilon_0 >= 0, "cons_x0")
+
     def solve(self):
         self.solver_model.update()
         self.solver_model.optimize()

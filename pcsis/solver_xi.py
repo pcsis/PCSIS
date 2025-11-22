@@ -4,7 +4,7 @@ import numpy as np
 
 
 class SolverXi:
-    def __init__(self, name: str = "PAC_CBF", num_vars: int = 0, coe_lb=-1e3, coe_ub=1e3,
+    def __init__(self, name: str = "PAC_CBF", num_vars: int = 0, coe_lb=-1e3, coe_ub=1e3, coe_lambda=10,
                  verbose: int = 0):
         self.solver_model = gp.Model(name)
         self.solver_model.setParam('OutputFlag', verbose)
@@ -13,10 +13,11 @@ class SolverXi:
         # self.solver_model.setParam('FeasibilityTol', 1e-6)
         self.num_vars = num_vars
 
-        lb = np.full(num_vars, coe_lb)
-        ub = np.full(num_vars, coe_ub)
+        # lb = np.full(num_vars, coe_lb)
+        # ub = np.full(num_vars, coe_ub)
         # lb[0] = 0.0
-        # ub[0] = gp.GRB.INFINITY
+        # ub[0] = coe_lambda
+        # self.var: [lambda, coe]
         self.var = self.solver_model.addMVar(shape=(num_vars,), lb=coe_lb, ub=coe_ub,
                                              vtype=gp.GRB.CONTINUOUS, name="var")
 
@@ -36,6 +37,9 @@ class SolverXi:
             constant = np.append(constant, 0)
 
         self.solver_model.addConstr(cons @ self.var <= constant, name="cons")
+
+    def add_constraint_x0(self, cons_x_0, epsilon_0):
+        self.solver_model.addConstr(cons_x_0 @ self.var - epsilon_0 >= 0, "cons_x0")
 
     def solve(self):
         obj = np.zeros(self.num_vars)

@@ -9,6 +9,7 @@ import numpy as np
 import math
 import itertools
 import time
+import random
 import warnings
 
 
@@ -20,7 +21,7 @@ class CSISProblem:
         self.solver = None
         self.solver_xi = None
         self.verbose = None
-        self.lamda = -1
+        self.gamma = -1
         self.alpha = 0
         self.beta = 0
         self.N = 0
@@ -46,6 +47,8 @@ class CSISProblem:
         self.traj = None
         self.N1 = 0
         self.obj_sample = None
+        self.epsilon_0 = 1e-6
+        self.x0 = None
 
     def set_options(self, **kwargs):
         self.verbose = kwargs.get("verbose", 1)
@@ -60,22 +63,23 @@ class CSISProblem:
         self.solver = Solver(num_vars=self.templates.num_vars, coe_lb=-U_al, coe_ub=U_al)
         self.solver_xi = SolverXi(num_vars=self.templates.num_vars + 1, coe_lb=-U_al, coe_ub=U_al)
 
-        self.lamda = kwargs.get("lamda", 0.99)
+        self.gamma = kwargs.get("gamma", 0.99)
+        num_vars = self.templates.num_vars + 1
 
         alpha = kwargs.get("alpha", None)
         beta = kwargs.get("beta", None)
         N = kwargs.get("N", None)
         if alpha is not None and beta is not None and N is not None:
-            assert alpha >= (2 / N * (math.log(1 / beta) + self.templates.num_vars))
+            assert alpha >= (2 / N * (math.log(1 / beta) + num_vars))
         elif alpha is not None and beta is not None and N is None:
-            N = 2 / alpha * (math.log(1 / beta) + self.templates.num_vars)
+            N = 2 / alpha * (math.log(1 / beta) + num_vars)
             N = math.ceil(N)
             print("N: ", N)
         elif alpha is None and beta is not None and N is not None:
-            alpha = 2 / N * (math.log(1 / beta) + self.templates.num_vars)
+            alpha = 2 / N * (math.log(1 / beta) + num_vars)
             print("alpha: ", alpha)
         elif alpha is not None and beta is None and N is not None:
-            beta = 1 / math.exp(0.5 * alpha * N - self.templates.num_vars)
+            beta = 1 / math.exp(0.5 * alpha * N - num_vars)
             print("beta: ", beta)
         else:
             raise ValueError("At least two of alpha, beta, and N must be entered!")
@@ -90,6 +94,7 @@ class CSISProblem:
 
         random_seed = kwargs.get("random_seed", False)
         if random_seed is not False:
+            random.seed(random_seed)
             np.random.seed(random_seed)
 
         self.K = kwargs.get("K", 5)
@@ -108,6 +113,9 @@ class CSISProblem:
                                         # save=True, prob_name=self.model.__class__.__name__)
         self.N1 = int(kwargs.get("N1", 1000))
         self.obj_sample = kwargs.get("obj_sample", "random")
+        self.epsilon_0 = kwargs.get("epsilon_0", 1e-6)
+        x0 = kwargs.get("x0", np.zeros(self.model.degree_state))
+        self.x0 = x0.reshape(1, -1)
 
     def generate_data(self, safe_set, control_set: Interval, method="random"):
         self.safe_set = safe_set
@@ -144,7 +152,7 @@ class CSISProblem:
         self.is_in_safe_set = self.is_in_safe_set.reshape(s1 // self.M, self.M)
         return h_fx
 
-    def _set_obj(self, num_obj, method="grid"):
+    def _set_obj(self, num_obj, method="random"):
         if isinstance(self.safe_set, Interval):
             obj_data = self.safe_set.generate_data(num_obj, method)
         elif isinstance(self.safe_set, Ellipsoid):
@@ -175,9 +183,13 @@ class CSISProblem:
         count_false = self.is_in_safe_set.shape[1] - count_true
         C_M = count_false * self.C / self.M
 
-        constraint = self.lamda * h_x - h_fx_sum
+        constraint = self.gamma * h_x - h_fx_sum
         constraint = np.insert(constraint, 0, -1, axis=1)
         self.solver_xi.add_constraint(constraint, C_M)
+
+        h_x_0 = self.templates.calc_values(self.x0)
+        constraint_x_0 = np.insert(h_x_0, 0, 0, axis=1)
+        self.solver_xi.add_constraint_x0(constraint_x_0, self.epsilon_0)
 
         solution = self.solver_xi.solve()
 
@@ -187,6 +199,96 @@ class CSISProblem:
         self.h_str_list.append(h_str)
         self.coe_list.append(coe)
         return xi, coe
+
+    def _solve_final(self, coe_last):
+
+        # get x_data, fx_data
+        u_data = [np.linspace(self.control_set.inf[i], self.control_set.sup[i], self.split_num) for i in range(len(self.control_set.inf))]
+        u_data = np.array(list(itertools.product(*u_data)))
+        if isinstance(self.safe_set, Interval):
+            assert self.model.degree_state == self.safe_set.inf.shape[0]
+            x_data = self.safe_set.generate_data(self.N, "random")
+        elif isinstance(self.safe_set, Ellipsoid):
+            assert self.model.degree_state == self.safe_set.degree
+            x_data = self.safe_set.generate_data(self.N, "random")
+        else:
+            raise NotImplementedError("Sampling within this type of safe set is not implemented")
+        fx_data = np.array(self.model.fx(x_data, u_data)).T
+
+
+
+        # get h_x, h_fx, h1_fx
+        h_x = self.templates.calc_values(x_data)
+        h_fx = self.templates.calc_values(fx_data)
+        s1, s2 = h_fx.shape
+
+        h1_fx = h_fx.reshape(s1 // self.M, self.M, s2)
+
+
+
+        # get is_in_safe_set, h_fx
+        h_unsafe = np.zeros((h_fx.shape[1],))
+        if isinstance(self.safe_set, Interval):
+            is_in_safe_set = np.all((fx_data >= self.safe_set.inf) & (fx_data <= self.safe_set.sup), axis=1)
+        elif isinstance(self.safe_set, Ellipsoid):
+            is_in_safe_set = self.safe_set.is_in_safe_set(fx_data)
+        else:
+            raise NotImplementedError("Sampling within this type of safe set is not implemented")
+        h_fx[~is_in_safe_set] = h_unsafe
+        is_in_safe_set = is_in_safe_set.reshape(s1 // self.M, self.M)
+        h_fx = h_fx.reshape(s1 // self.M, self.M, s2)
+
+        # compute xi_final
+        weight = np.full((self.M,), self.epsilon / self.M)
+        h_fx_other = np.tensordot(h_fx, weight, axes=(1, 0))
+
+        count_true = np.sum(is_in_safe_set, axis=1)
+        count_false = is_in_safe_set.shape[1] - count_true
+        CE_M = count_false * self.C * self.epsilon / self.M
+
+        max_h_fx = np.dot(h1_fx, coe_last)
+        max_h_fx[~is_in_safe_set] = self.C
+        max_u = np.argmax(max_h_fx, axis=1)
+        h_fx_max = h_fx[np.arange(h_fx.shape[0]), max_u]
+        check_C = (h_fx_max[:, 0] == 0).astype(int)
+        C1_E_M = check_C * self.C * (1.0 - self.epsilon)
+        C_M = CE_M + C1_E_M
+
+        h_fx_max = h_fx_max * (1.0 - self.epsilon)
+
+        h_fx_sum = h_fx_other + h_fx_max
+
+        constraint = self.gamma * h_x - h_fx_sum
+        constraint = np.insert(constraint, 0, -1, axis=1)
+        self.solver_xi.clean_constraint()
+        self.solver_xi.add_constraint(constraint, C_M)
+
+        h_x_0 = self.templates.calc_values(self.x0)
+        constraint_x_0 = np.insert(h_x_0, 0, 0, axis=1)
+        self.solver_xi.add_constraint_x0(constraint_x_0, self.epsilon_0)
+
+        solution = self.solver_xi.solve()
+        xi, coe = solution[0], solution[1:]
+        h_str = self.templates.output(coe)
+        print(h_str)
+
+        if xi != 0:
+            print("xi != 0")
+            raise ValueError()
+
+        # compute max_V_final
+        constraint = self.gamma * h_x - h_fx_sum
+        self.solver.clean_constraint()
+        self.solver.add_constraint(constraint, C_M)
+
+        h_x_0 = self.templates.calc_values(self.x0)
+        self.solver.add_constraint_x0(h_x_0, self.epsilon_0)
+        solution, obj_max = self.solver.solve()
+        h_str = self.templates.output(solution)
+        print(h_str)
+        self.h_str_list.append(h_str)
+        self.coe_list.append(solution)
+        return solution, obj_max
 
     def _solve_xi(self, coe_last):
         weight = np.full((self.M,), self.epsilon / self.M)
@@ -208,10 +310,14 @@ class CSISProblem:
 
         h_fx_sum = h_fx_other + h_fx_max
 
-        constraint = self.lamda * self.h_x - h_fx_sum
+        constraint = self.gamma * self.h_x - h_fx_sum
         constraint = np.insert(constraint, 0, -1, axis=1)
         self.solver_xi.clean_constraint()
         self.solver_xi.add_constraint(constraint, C_M)
+
+        h_x_0 = self.templates.calc_values(self.x0)
+        constraint_x_0 = np.insert(h_x_0, 0, 0, axis=1)
+        self.solver_xi.add_constraint_x0(constraint_x_0, self.epsilon_0)
 
         # self.solver_xi.set_init_value(coe_last)
         solution = self.solver_xi.solve()
@@ -242,9 +348,12 @@ class CSISProblem:
 
         h_fx_sum = h_fx_other + h_fx_max
 
-        constraint = self.lamda * self.h_x - h_fx_sum
+        constraint = self.gamma * self.h_x - h_fx_sum
         self.solver.clean_constraint()
         self.solver.add_constraint(constraint, C_M)
+
+        h_x_0 = self.templates.calc_values(self.x0)
+        self.solver.add_constraint_x0(h_x_0, self.epsilon_0)
 
         # out_v_x = np.dot(self.h_x, coe_last)
         # out_x_index = out_v_x > 0
@@ -274,7 +383,7 @@ class CSISProblem:
               .format(iteration, volume, self.N))
         return volume
 
-    def get_probability(self, num_sample, iteration=None):
+    def get_probability(self, num_sample, coe):
         num_sample = int(num_sample)
         if isinstance(self.safe_set, Interval):
             sample_data = np.random.uniform(self.safe_set.inf, self.safe_set.sup, size=(num_sample, len(self.safe_set.inf)))
@@ -284,11 +393,7 @@ class CSISProblem:
             raise NotImplementedError("Sampling within this type of safe set is not implemented")
         h_x_data = self.templates.calc_values(sample_data)
 
-        if iteration is None:
-            index = np.argmax(self.volume_list)
-        else:
-            index = iteration
-        value_v_x = np.dot(h_x_data, self.coe_list[index])
+        value_v_x = np.dot(h_x_data, coe)
         volume = np.count_nonzero(value_v_x > 0) / num_sample
         print(r'P_x [x \in S] = ', volume, ', estimated by Monte Carlo method')
         probability = 1 - self.alpha / volume
@@ -321,7 +426,7 @@ class CSISProblem:
         # coe_last = self._solve_0_max(x_data, fx_data)
         # self.calc_volume(coe_last, iteration)
 
-        obj_max_last, obj_max = -np.infty, np.infty
+        obj_max_last, obj_max = -np.inf, np.inf
         while iteration < self.K_prime and abs(obj_max - obj_max_last) > self.epsilon_prime:
             obj_max_last = obj_max
             coe_last, obj_max = self._solve_max(coe_last)
@@ -330,6 +435,8 @@ class CSISProblem:
             print()
 
             self.epsilon = self.epsilon * self.update_epsilon
+
+        coe_last, obj_max = self._solve_final(coe_last)
 
         end_time = time.time()
         elapsed_time = end_time - start_time
@@ -408,7 +515,7 @@ class CSISProblem:
     #     count_false = self.is_in_safe_set.shape[1] - count_true
     #     C_M = count_false * self.C / self.M
     #
-    #     constraint = self.lamda * h_x - h_fx_sum
+    #     constraint = self.gamma * h_x - h_fx_sum
     #     self.solver.add_constraint(constraint, C_M)
     #     self.solver.set_objective(h_x)
     #     solution = self.solver.solve()

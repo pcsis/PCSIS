@@ -2,7 +2,6 @@ from pcsis.model import *
 from pcsis.sis_problem import SISProblem
 from pcsis.interval import Interval
 from pcsis.ellipsoid import Ellipsoid
-import time
 
 if __name__ == '__main__':
     model = Numerical1SIS
@@ -10,7 +9,7 @@ if __name__ == '__main__':
 
     alpha, beta = 0.005, 0.0001
     # alpha, beta = 0.01, 0.001
-    prob.set_options(degree_poly=16, lamda=0.9999, alpha=alpha, beta=beta, C=-1,
+    prob.set_options(degree_poly=16, gamma=0.9999, alpha=alpha, beta=beta, C=-1,
                      U_al=1e3, N1=1e3, random_seed=0)
 
     safe_set = Ellipsoid([0, 0], [1, 1])
@@ -19,11 +18,7 @@ if __name__ == '__main__':
     h1 = prob.solve(x_safe, fx_safe, x_unsafe, fx_unsafe)
     prob.get_probability(1e6)
 
-    start_time = time.time()
-    sim_data = prob.monte_carlo(1e6, 5e2)
-    end_time = time.time()
-    elapsed_time = end_time - start_time
-    print(f"The time required for solution is {elapsed_time} seconds.")
+    sim_data = prob.monte_carlo(1e6, 1e2)
     print(r'P_x [x \in S] = ', len(sim_data) / 1e6, ', estimated by Monte Carlo method')
 
     prob.plot(h1, sim_data=sim_data)

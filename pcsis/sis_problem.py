@@ -18,7 +18,7 @@ class SISProblem:
         self.templates = None
         self.solver = None
         self.verbose = None
-        self.lamda = -1
+        self.gamma = -1
         self.alpha = 0
         self.beta = 0
         self.N = 0
@@ -29,6 +29,8 @@ class SISProblem:
         self.coe = None
         self.N1 = 0
         self.obj_sample = None
+        self.epsilon_0 = 1e-6
+        self.x0 = None
 
     def set_options(self, **kwargs):
         self.verbose = kwargs.get("verbose", 1)
@@ -42,22 +44,23 @@ class SISProblem:
         coe_b = kwargs.get("U_al", 1e3)
         self.solver = Solver(num_vars=self.templates.num_vars, coe_lb=-coe_b, coe_ub=coe_b)
 
-        self.lamda = kwargs.get("lamda", 0.99)
+        self.gamma = kwargs.get("gamma", 0.99)
 
         alpha = kwargs.get("alpha", None)
         beta = kwargs.get("beta", None)
         N = kwargs.get("N", None)
+        num_vars = self.templates.num_vars + 1
         if alpha is not None and beta is not None and N is not None:
-            assert alpha >= (2 / N * (math.log(1 / beta) + self.templates.num_vars))
+            assert alpha >= (2 / N * (math.log(1 / beta) + num_vars))
         elif alpha is not None and beta is not None and N is None:
-            N = 2 / alpha * (math.log(1 / beta) + self.templates.num_vars)
+            N = 2 / alpha * (math.log(1 / beta) + num_vars)
             N = math.ceil(N)
             print("N: ", N)
         elif alpha is None and beta is not None and N is not None:
-            alpha = 2 / N * (math.log(1 / beta) + self.templates.num_vars)
+            alpha = 2 / N * (math.log(1 / beta) + num_vars)
             print("alpha: ", alpha)
         elif alpha is not None and beta is None and N is not None:
-            beta = 1 / math.exp(0.5 * alpha * N - self.templates.num_vars)
+            beta = 1 / math.exp(0.5 * alpha * N - num_vars)
             print("beta: ", beta)
         else:
             raise ValueError("At least two of alpha, beta, and N must be entered!")
@@ -79,7 +82,10 @@ class SISProblem:
 
         self.N1 = int(kwargs.get("N1", 1000))
         self.obj_sample = kwargs.get("obj_sample", "random")
-        # self.obj_sample = kwargs.get("obj_sample", "grid")
+
+        self.epsilon_0 = kwargs.get("epsilon_0", 1e-6)
+        x0 = kwargs.get("x0", np.zeros(self.model.degree_state))
+        self.x0 = x0.reshape(1, -1)
 
     def generate_data(self, safe_set, method="random"):
         self.safe_set = safe_set
@@ -146,10 +152,14 @@ class SISProblem:
 
         h_x_unsafe = self.templates.calc_values(x_unsafe)
 
-        constraint_safe = self.lamda * h_x_safe - h_fx_safe
-        constraint_unsafe = self.lamda * h_x_unsafe
+        constraint_safe = self.gamma * h_x_safe - h_fx_safe
+        constraint_unsafe = self.gamma * h_x_unsafe
 
         self.solver.add_constraint_verification(constraint_safe, constraint_unsafe, self.C)
+
+        h_x_0 = self.templates.calc_values(self.x0)
+        self.solver.add_constraint_x0(h_x_0, self.epsilon_0)
+
         solution, obj_max = self.solver.solve()
 
         end_time = time.time()
