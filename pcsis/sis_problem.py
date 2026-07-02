@@ -1,6 +1,7 @@
 from __future__ import annotations
 from .template import Templates
 from .solver import Solver
+from .solver_xi import SolverXi
 from .interval import Interval
 from .ellipsoid import Ellipsoid
 from .plot_manager import PlotManager
@@ -17,6 +18,7 @@ class SISProblem:
 
         self.templates = None
         self.solver = None
+        self.solver_xi = None
         self.verbose = None
         self.gamma = -1
         self.alpha = 0
@@ -31,6 +33,7 @@ class SISProblem:
         self.obj_sample = None
         self.epsilon_0 = 1e-6
         self.x0 = None
+        self.lamda = None
 
     def set_options(self, **kwargs):
         self.verbose = kwargs.get("verbose", 1)
@@ -43,6 +46,7 @@ class SISProblem:
 
         coe_b = kwargs.get("U_al", 1e3)
         self.solver = Solver(num_vars=self.templates.num_vars, coe_lb=-coe_b, coe_ub=coe_b)
+        self.solver_xi = SolverXi(num_vars=self.templates.num_vars + 1, coe_lb=-coe_b, coe_ub=coe_b)
 
         self.gamma = kwargs.get("gamma", 0.99)
 
@@ -144,6 +148,26 @@ class SISProblem:
         obj_h_x_data = self.templates.calc_values(obj_data)
         self.solver.set_objective(obj_h_x_data)
 
+    def _solve_xi(self, h_x_safe, h_fx_safe, h_x_unsafe):
+        constraint_safe = self.gamma * h_x_safe - h_fx_safe
+        constraint_safe = np.insert(constraint_safe, 0, -1, axis=1)
+
+        constraint_unsafe = self.gamma * h_x_unsafe
+        constraint_unsafe = np.insert(constraint_unsafe, 0, -1, axis=1)
+
+        constraint = np.vstack((constraint_safe, constraint_unsafe))
+        constant = np.append(np.zeros(h_x_safe.shape[0]), np.full(h_x_unsafe.shape[0], self.C))
+        self.solver_xi.add_constraint(constraint, constant)
+
+        h_x_0 = self.templates.calc_values(self.x0)
+        constraint_x_0 = np.insert(h_x_0, 0, 0, axis=1)
+        self.solver_xi.add_constraint_x0(constraint_x_0, self.epsilon_0)
+
+        solution = self.solver_xi.solve()
+        lamda, coe = solution[0], solution[1:]
+        self.lamda = lamda
+        return lamda, coe
+
     def solve(self, x_safe, fx_safe, x_unsafe, fx_unsafe):
         start_time = time.time()
         self._set_obj(self.N1, self.obj_sample)
@@ -151,6 +175,11 @@ class SISProblem:
         h_fx_safe = self.templates.calc_values(fx_safe)
 
         h_x_unsafe = self.templates.calc_values(x_unsafe)
+
+        lamda, _ = self._solve_xi(h_x_safe, h_fx_safe, h_x_unsafe)
+        if lamda > 1e-8:
+            print("lambda != 0")
+            raise ValueError()
 
         constraint_safe = self.gamma * h_x_safe - h_fx_safe
         constraint_unsafe = self.gamma * h_x_unsafe
